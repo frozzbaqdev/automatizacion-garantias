@@ -498,5 +498,3 @@ limitación de la plataforma, no del código. Aun así el portal:
 | No llegan correos | Falta autorizar `script.send_mail` con la cuenta `USER_DEPLOYING`, o hay que revocar y volver a autorizar permisos | Corre `probarNotificacionError` desde el editor; si ya habías autorizado Drive con la misma cuenta, revoca el acceso en [myaccount.google.com/permissions](https://myaccount.google.com/permissions) y vuelve a correrla |
 | Error de Drive tipo "permisos" al subir adjuntos | La carpeta raíz vive en una Shared Drive y falta `supportsAllDrives=true`, o el scope `drive` no quedó autorizado | Ver comentario completo en [Drive.js](src/Drive.js); revisar `oauthScopes` en `appsscript.json` |
 | `npm run push` falla por conflicto | Hay cambios hechos directamente en el editor web que no están en el repo local | `npm run pull` primero, revisar el diff, y luego volver a subir |
-#   a u t o m a t i z a c i o n - g a r a n t i a s  
- 
