@@ -1,0 +1,680 @@
+<script>
+  var ETAPAS = [
+    { nombre: 'Revisión inicial', corto: 'Revisión', duracion: '2 a 3 días hábiles' },
+    { nombre: 'Diagnóstico', corto: 'Diagnóstico', duracion: 'Hasta 4 días hábiles' },
+    { nombre: 'Aprobación', corto: 'Aprobación', duracion: 'En validación con el cliente' },
+    { nombre: 'En ejecución', corto: 'En ejecución', duracion: 'Según repuestos, fabricación o visita técnica' },
+    { nombre: 'Finalizada', corto: 'Finalizada', duracion: 'Garantía cerrada' }
+  ];
+
+  var ultimoNumeroCreado = '';
+  var ultimoNitCreado = '';
+  var ultimoTipoDocumentoCreado = '';
+  var clienteVerificado = null;
+
+  var ADJUNTOS_MAX_CANTIDAD = 5;
+  var ADJUNTOS_MAX_BYTES = 8 * 1024 * 1024;
+  var archivosSeleccionados = [];
+
+  document.addEventListener('DOMContentLoaded', function () {
+    initTabs();
+    initFormNuevo();
+    initFormConsulta();
+    initAdjuntos();
+  });
+
+  // ---------------- Adjuntos (documentación de soporte) ----------------
+  function initAdjuntos() {
+    document.getElementById('adjuntos').addEventListener('change', function (e) {
+      ocultarErrorAdjuntos();
+      var nuevos = Array.prototype.slice.call(e.target.files);
+      nuevos.forEach(function (file) {
+        if (archivosSeleccionados.length >= ADJUNTOS_MAX_CANTIDAD) {
+          mostrarErrorAdjuntos('Puedes adjuntar máximo ' + ADJUNTOS_MAX_CANTIDAD + ' archivos.');
+          return;
+        }
+        if (file.size > ADJUNTOS_MAX_BYTES) {
+          mostrarErrorAdjuntos('El archivo "' + file.name + '" supera el tamaño máximo permitido (8 MB).');
+          return;
+        }
+        var yaEstaAgregado = archivosSeleccionados.some(function (f) {
+          return f.name === file.name && f.size === file.size;
+        });
+        if (!yaEstaAgregado) archivosSeleccionados.push(file);
+      });
+      sincronizarInputAdjuntos();
+      renderizarListaAdjuntos();
+    });
+  }
+
+  /**
+   * El input nativo de archivos reemplaza toda la selección cada vez que
+   * el usuario elige archivos de nuevo, así que para poder ir acumulando
+   * (y quitar uno en particular) se mantiene `archivosSeleccionados` como
+   * fuente de verdad y se reconstruye input.files con DataTransfer para
+   * que ambos queden sincronizados.
+   */
+  function sincronizarInputAdjuntos() {
+    var input = document.getElementById('adjuntos');
+    var dt = new DataTransfer();
+    archivosSeleccionados.forEach(function (file) { dt.items.add(file); });
+    input.files = dt.files;
+  }
+
+  function renderizarListaAdjuntos() {
+    var lista = document.getElementById('adjuntos-lista');
+    lista.innerHTML = '';
+    archivosSeleccionados.forEach(function (file, indice) {
+      var item = document.createElement('div');
+      item.className = 'file-list-item';
+
+      var nombre = document.createElement('span');
+      nombre.className = 'file-list-nombre';
+      nombre.textContent = file.name;
+
+      var quitar = document.createElement('button');
+      quitar.type = 'button';
+      quitar.textContent = 'Quitar';
+      quitar.addEventListener('click', function () {
+        archivosSeleccionados.splice(indice, 1);
+        sincronizarInputAdjuntos();
+        renderizarListaAdjuntos();
+      });
+
+      item.appendChild(nombre);
+      item.appendChild(quitar);
+      lista.appendChild(item);
+    });
+  }
+
+  function resetearAdjuntos() {
+    archivosSeleccionados = [];
+    sincronizarInputAdjuntos();
+    renderizarListaAdjuntos();
+    ocultarErrorAdjuntos();
+  }
+
+  function mostrarErrorAdjuntos(mensaje) {
+    document.getElementById('error-adjuntos').textContent = mensaje;
+  }
+
+  function ocultarErrorAdjuntos() {
+    document.getElementById('error-adjuntos').textContent = '';
+  }
+
+  /**
+   * Convierte un File del navegador a base64 puro (sin el prefijo
+   * "data:...;base64,") para poder mandarlo a Apps Script vía
+   * google.script.run, que solo acepta datos serializables a JSON.
+   */
+  function leerArchivoComoBase64_(file) {
+    return new Promise(function (resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function () {
+        var resultado = String(reader.result || '');
+        var indiceComa = resultado.indexOf(',');
+        var base64 = indiceComa !== -1 ? resultado.slice(indiceComa + 1) : resultado;
+        resolve({
+          nombre: file.name,
+          tipoMime: file.type || 'application/octet-stream',
+          datosBase64: base64
+        });
+      };
+      reader.onerror = function () {
+        reject(new Error('No se pudo leer el archivo "' + file.name + '".'));
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // ---------------- Tabs ----------------
+  function initTabs() {
+    var tabs = document.querySelectorAll('.tab');
+    tabs.forEach(function (tab) {
+      tab.addEventListener('click', function () {
+        activarTab(tab.dataset.tab);
+      });
+    });
+  }
+
+  function activarTab(nombre) {
+    document.querySelectorAll('.tab').forEach(function (t) {
+      t.classList.toggle('is-active', t.dataset.tab === nombre);
+    });
+    document.querySelectorAll('.view').forEach(function (v) {
+      v.classList.toggle('is-active', v.dataset.view === nombre);
+    });
+  }
+
+  // ---------------- Nueva garantía ----------------
+  var CAMPOS_NUEVO = ['nombre-contacto', 'telefono-contacto', 'correo-contacto', 'motivo', 'descripcion'];
+
+  function initFormNuevo() {
+    var form = document.getElementById('form-nuevo');
+    var telefonoInput = document.getElementById('telefono-contacto');
+    var nitInput = document.getElementById('nit-empresa');
+    var tipoDocumentoInput = document.getElementById('tipo-documento');
+
+    nitInput.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        verificarClienteNuevo();
+      }
+    });
+
+    document.getElementById('btn-verificar-nit').addEventListener('click', verificarClienteNuevo);
+
+    document.getElementById('btn-cambiar-nit').addEventListener('click', function () {
+      clienteVerificado = null;
+      document.getElementById('cliente-confirmado').style.display = 'none';
+      document.getElementById('resto-formulario').style.display = 'none';
+      document.getElementById('seccion-nit').style.display = 'block';
+      resetearOrdenesTrabajo();
+      tipoDocumentoInput.focus();
+    });
+
+    telefonoInput.addEventListener('input', function () {
+      telefonoInput.value = telefonoInput.value.replace(/\D/g, '').slice(0, 10);
+    });
+
+    CAMPOS_NUEVO.forEach(function (id) {
+      var campo = document.getElementById(id);
+      campo.addEventListener('input', function () { limpiarErrorCampo(id); });
+      campo.addEventListener('change', function () { limpiarErrorCampo(id); });
+    });
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      ocultarError('nuevo-error');
+
+      if (!clienteVerificado) {
+        mostrarError('nuevo-error', 'Primero verifica el NIT de tu empresa.');
+        return;
+      }
+
+      var datos = {
+        clienteNit: clienteVerificado.nit,
+        clienteTipoDocumento: clienteVerificado.tipoDocumento,
+        clienteEmpresa: clienteVerificado.empresa,
+        ordenTrabajoPageId: document.getElementById('orden-trabajo').value,
+        nombreContacto: document.getElementById('nombre-contacto').value.trim(),
+        telefonoContacto: telefonoInput.value.trim(),
+        correoContacto: document.getElementById('correo-contacto').value.trim(),
+        motivo: document.getElementById('motivo').value.trim(),
+        descripcionGeneral: document.getElementById('descripcion').value.trim()
+      };
+
+      if (!validarFormNuevo(datos)) {
+        return;
+      }
+
+      var btn = document.getElementById('btn-enviar');
+      btn.disabled = true;
+      btn.classList.add('is-loading');
+      btn.textContent = 'Creando…';
+      mostrarCargandoNuevo();
+
+      Promise.all(archivosSeleccionados.map(leerArchivoComoBase64_))
+        .then(function (archivosCodificados) {
+          google.script.run
+            .withSuccessHandler(function (res) { onTicketCreado(res, btn, archivosCodificados); })
+            .withFailureHandler(function (err) { onErrorCreacion(err, btn); })
+            .crearTicket(datos);
+        })
+        .catch(function (err) {
+          ocultarCargandoNuevo();
+          btn.disabled = false;
+          btn.classList.remove('is-loading');
+          btn.textContent = 'Crear garantía';
+          mostrarError('nuevo-error', (err && err.message) || 'No se pudieron procesar los archivos adjuntos.');
+        });
+    });
+
+    document.getElementById('btn-limpiar').addEventListener('click', function () {
+      form.reset();
+      resetearFormNuevo();
+      ocultarError('nuevo-error');
+    });
+
+    document.getElementById('btn-crear-otro').addEventListener('click', function () {
+      document.getElementById('form-nuevo').reset();
+      resetearFormNuevo();
+      document.getElementById('nuevo-exito').style.display = 'none';
+      document.getElementById('nuevo-form-wrap').style.display = 'block';
+    });
+
+    document.getElementById('btn-ver-estado').addEventListener('click', function () {
+      activarTab('consultar');
+      document.getElementById('numero-buscado').value = ultimoNumeroCreado;
+      document.getElementById('tipo-documento-buscado').value = ultimoTipoDocumentoCreado;
+      document.getElementById('nit-buscado').value = ultimoNitCreado;
+      buscarTicket(ultimoNumeroCreado, ultimoNitCreado, ultimoTipoDocumentoCreado);
+    });
+  }
+
+  function resetearFormNuevo() {
+    clienteVerificado = null;
+    document.getElementById('cliente-confirmado').style.display = 'none';
+    document.getElementById('resto-formulario').style.display = 'none';
+    document.getElementById('seccion-nit').style.display = 'block';
+    limpiarErrorCampo('tipo-documento');
+    resetearOrdenesTrabajo();
+    resetearAdjuntos();
+    CAMPOS_NUEVO.forEach(limpiarErrorCampo);
+  }
+
+  function resetearOrdenesTrabajo() {
+    var select = document.getElementById('orden-trabajo');
+    select.innerHTML = '<option value="">Sin orden de trabajo asociada</option>';
+    select.disabled = false;
+    var hint = document.getElementById('orden-trabajo-hint');
+    hint.style.display = 'none';
+    hint.textContent = '';
+  }
+
+  /**
+   * Carga en el desplegable las órdenes de trabajo (OT) asociadas al
+   * cliente ya verificado, para que el usuario pueda vincular la garantía
+   * a una en concreto. Es un campo opcional: si no hay OT asociadas (o la
+   * consulta falla) se deja la opción "Sin orden de trabajo asociada" y no
+   * bloquea la creación de la garantía.
+   */
+  function cargarOrdenesTrabajo(clientePageId) {
+    var select = document.getElementById('orden-trabajo');
+    var hint = document.getElementById('orden-trabajo-hint');
+    select.innerHTML = '<option value="">Cargando órdenes de trabajo…</option>';
+    select.disabled = true;
+    hint.style.display = 'none';
+    hint.textContent = '';
+
+    google.script.run
+      .withSuccessHandler(function (res) {
+        select.disabled = false;
+        select.innerHTML = '<option value="">Sin orden de trabajo asociada</option>';
+
+        if (!res || !res.ok) {
+          hint.textContent = (res && res.error) || 'No se pudieron cargar las órdenes de trabajo.';
+          hint.style.display = 'block';
+          return;
+        }
+
+        if (!res.ordenes.length) {
+          hint.textContent = 'No se encontraron órdenes de trabajo asociadas a esta empresa.';
+          hint.style.display = 'block';
+          return;
+        }
+
+        res.ordenes.forEach(function (ot) {
+          var option = document.createElement('option');
+          option.value = ot.pageId;
+          option.textContent = ot.servicio ? (ot.numero + ' — ' + ot.servicio) : ot.numero;
+          select.appendChild(option);
+        });
+      })
+      .withFailureHandler(function () {
+        select.disabled = false;
+        select.innerHTML = '<option value="">Sin orden de trabajo asociada</option>';
+        hint.textContent = 'Ocurrió un problema al cargar las órdenes de trabajo.';
+        hint.style.display = 'block';
+      })
+      .listarOrdenesTrabajoPorCliente(clientePageId);
+  }
+
+  /**
+   * Valida cada campo del formulario por separado y muestra un mensaje
+   * personalizado justo debajo del campo que falla, en vez de un solo
+   * mensaje genérico. Devuelve true si todo está correcto.
+   */
+  function validarFormNuevo(datos) {
+    CAMPOS_NUEVO.forEach(limpiarErrorCampo);
+
+    var errores = {};
+
+    if (!datos.nombreContacto) {
+      errores['nombre-contacto'] = 'Ingresa el nombre de quien reporta la garantía.';
+    }
+
+    if (!datos.telefonoContacto) {
+      errores['telefono-contacto'] = 'Ingresa un número de teléfono de contacto.';
+    } else if (!/^\d{10}$/.test(datos.telefonoContacto)) {
+      errores['telefono-contacto'] = 'El teléfono debe tener exactamente 10 dígitos.';
+    }
+
+    if (!datos.correoContacto) {
+      errores['correo-contacto'] = 'Ingresa un correo de contacto.';
+    } else if (!/^\S+@\S+\.\S+$/.test(datos.correoContacto)) {
+      errores['correo-contacto'] = 'Ingresa un correo electrónico válido.';
+    }
+
+    if (!datos.motivo) {
+      errores['motivo'] = 'Selecciona el motivo de la garantía.';
+    }
+
+    if (!datos.descripcionGeneral) {
+      errores['descripcion'] = 'Describe el problema para poder tramitar la garantía.';
+    }
+
+    var primerCampoConError = null;
+    Object.keys(errores).forEach(function (id) {
+      var campo = marcarErrorCampo(id, errores[id]);
+      if (!primerCampoConError) primerCampoConError = campo;
+    });
+
+    if (primerCampoConError) {
+      primerCampoConError.focus();
+      primerCampoConError.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return false;
+    }
+
+    return true;
+  }
+
+  function marcarErrorCampo(id, mensaje) {
+    var campo = document.getElementById(id);
+    var errorEl = document.getElementById('error-' + id);
+    if (errorEl) errorEl.textContent = mensaje;
+    var contenedorConBorde = campo.closest('.input-icon') || campo;
+    contenedorConBorde.classList.add('is-invalid');
+    return campo;
+  }
+
+  function limpiarErrorCampo(id) {
+    var campo = document.getElementById(id);
+    if (!campo) return;
+    var errorEl = document.getElementById('error-' + id);
+    if (errorEl) errorEl.textContent = '';
+    var contenedorConBorde = campo.closest('.input-icon') || campo;
+    contenedorConBorde.classList.remove('is-invalid');
+  }
+
+  function verificarClienteNuevo() {
+    ocultarError('nuevo-error');
+    limpiarErrorCampo('tipo-documento');
+    var tipoDocumento = document.getElementById('tipo-documento').value.trim();
+    var nit = document.getElementById('nit-empresa').value.trim();
+
+    if (!tipoDocumento) {
+      marcarErrorCampo('tipo-documento', 'Selecciona el tipo de documento.');
+      document.getElementById('tipo-documento').focus();
+      return;
+    }
+    if (!nit) {
+      mostrarError('nuevo-error', 'Ingresa el número de documento de tu empresa.');
+      return;
+    }
+
+    var btn = document.getElementById('btn-verificar-nit');
+    btn.disabled = true;
+    btn.classList.add('is-loading');
+    btn.textContent = 'Verificando…';
+
+    google.script.run
+      .withSuccessHandler(function (res) {
+        btn.disabled = false;
+        btn.classList.remove('is-loading');
+        btn.textContent = 'Verificar empresa';
+        if (!res || !res.ok) {
+          mostrarError('nuevo-error', (res && res.error) || 'No se pudo verificar el documento ingresado.');
+          return;
+        }
+        clienteVerificado = res.cliente;
+        document.getElementById('cliente-confirmado-nombre').textContent = res.cliente.empresa;
+        document.getElementById('seccion-nit').style.display = 'none';
+        document.getElementById('cliente-confirmado').style.display = 'flex';
+        document.getElementById('resto-formulario').style.display = 'block';
+        cargarOrdenesTrabajo(res.cliente.pageId);
+      })
+      .withFailureHandler(function () {
+        btn.disabled = false;
+        btn.classList.remove('is-loading');
+        btn.textContent = 'Verificar empresa';
+        mostrarError('nuevo-error', 'Ocurrió un problema al verificar el documento. Intenta de nuevo.');
+      })
+      .buscarClientePorNit(nit, tipoDocumento);
+  }
+
+  function mostrarCargandoNuevo() {
+    document.getElementById('nuevo-cargando').style.display = 'flex';
+  }
+
+  function ocultarCargandoNuevo() {
+    document.getElementById('nuevo-cargando').style.display = 'none';
+  }
+
+  function onTicketCreado(res, btn, archivosCodificados) {
+    ocultarCargandoNuevo();
+    btn.disabled = false;
+    btn.classList.remove('is-loading');
+    btn.textContent = 'Crear garantía';
+    if (!res || !res.ok) {
+      mostrarError('nuevo-error', (res && res.error) || 'No se pudo crear la garantía.');
+      return;
+    }
+    ultimoNumeroCreado = res.numero;
+    ultimoNitCreado = clienteVerificado ? clienteVerificado.nit : '';
+    ultimoTipoDocumentoCreado = clienteVerificado ? clienteVerificado.tipoDocumento : '';
+    document.getElementById('exito-numero').textContent = res.numero;
+    document.getElementById('nuevo-form-wrap').style.display = 'none';
+    document.getElementById('nuevo-exito').style.display = 'block';
+
+    // La garantía ya quedó guardada (lo de arriba). La carpeta de Drive y
+    // los adjuntos se suben aparte, después de que el cliente ya ve su
+    // número de garantía: así una subida lenta o que falle no retrasa ni
+    // pone en duda si la garantía se guardó. Se dispara sin bloquear la
+    // pantalla; si falla, el equipo de Frozz recibe el correo de aviso
+    // (ver subirDocumentacionGarantia en Code.js) y puede resolverlo desde
+    // el panel de gestión.
+    google.script.run
+      .withSuccessHandler(function () {})
+      .withFailureHandler(function () {})
+      .subirDocumentacionGarantia(res.pageId, res.numero, archivosCodificados || []);
+  }
+
+  function onErrorCreacion(err, btn) {
+    ocultarCargandoNuevo();
+    btn.disabled = false;
+    btn.classList.remove('is-loading');
+    btn.textContent = 'Crear garantía';
+    var mensaje = (err && err.message) ? err.message : 'Ocurrió un problema al crear la garantía. Intenta de nuevo.';
+    mostrarError('nuevo-error', mensaje);
+  }
+
+  // ---------------- Consultar garantía ----------------
+  function initFormConsulta() {
+    var form = document.getElementById('form-consulta');
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      ocultarError('consulta-error');
+      limpiarErrorCampo('tipo-documento-buscado');
+
+      var numero = document.getElementById('numero-buscado').value.trim();
+      var tipoDocumento = document.getElementById('tipo-documento-buscado').value.trim();
+      var nit = document.getElementById('nit-buscado').value.trim();
+
+      if (!tipoDocumento) {
+        marcarErrorCampo('tipo-documento-buscado', 'Selecciona el tipo de documento.');
+        document.getElementById('tipo-documento-buscado').focus();
+        return;
+      }
+      if (!nit) {
+        mostrarError('consulta-error', 'Ingresa el número de documento de tu empresa.');
+        return;
+      }
+      if (!numero) {
+        mostrarError('consulta-error', 'Escribe un número de garantía.');
+        return;
+      }
+      buscarTicket(numero, nit, tipoDocumento);
+    });
+  }
+
+  function buscarTicket(numero, nit, tipoDocumento) {
+    ocultarError('consulta-error');
+    document.getElementById('consulta-resultado').style.display = 'none';
+    document.getElementById('consulta-vacio').textContent = 'Buscando…';
+    document.getElementById('consulta-vacio').style.display = 'block';
+
+    var btnBuscar = document.querySelector('#form-consulta .search-submit');
+    btnBuscar.disabled = true;
+    btnBuscar.classList.add('is-loading');
+
+    google.script.run
+      .withSuccessHandler(function (res) {
+        btnBuscar.disabled = false;
+        btnBuscar.classList.remove('is-loading');
+        mostrarResultadoConsulta(res);
+      })
+      .withFailureHandler(function () {
+        btnBuscar.disabled = false;
+        btnBuscar.classList.remove('is-loading');
+        document.getElementById('consulta-vacio').style.display = 'none';
+        mostrarError('consulta-error', 'Ocurrió un problema al consultar la garantía. Intenta de nuevo.');
+      })
+      .buscarTicketPorId(numero, nit, tipoDocumento);
+  }
+
+  function mostrarResultadoConsulta(res) {
+    if (!res || !res.ok) {
+      document.getElementById('consulta-vacio').style.display = 'block';
+      document.getElementById('consulta-vacio').textContent = 'Escribe el número que recibiste al crear tu solicitud.';
+      mostrarError('consulta-error', (res && res.error) || 'No se encontró la garantía.');
+      return;
+    }
+
+    document.getElementById('consulta-vacio').style.display = 'none';
+    var t = res.ticket;
+
+    document.getElementById('r-numero').textContent = t.numero;
+    document.getElementById('r-fecha').textContent = t.fecha ? 'Creado el ' + t.fecha : '';
+    document.getElementById('r-empresa').textContent = t.clienteEmpresa || '—';
+    document.getElementById('r-nit').textContent = t.clienteNit || '—';
+    document.getElementById('r-contacto').textContent = formatearContacto(t);
+    document.getElementById('r-motivo').textContent = formatearMotivo(t.motivo);
+    document.getElementById('r-descripcion').textContent = t.descripcionGeneral || '—';
+
+    var otWrap = document.getElementById('r-orden-trabajo-wrap');
+    if (t.ordenTrabajo) {
+      otWrap.style.display = 'block';
+      document.getElementById('r-orden-trabajo').textContent = t.ordenTrabajo;
+    } else {
+      otWrap.style.display = 'none';
+    }
+
+    var planWrap = document.getElementById('r-plan-wrap');
+    if (t.planDeAccion) {
+      planWrap.style.display = 'block';
+      document.getElementById('r-plan-link').href = t.planDeAccion;
+    } else {
+      planWrap.style.display = 'none';
+    }
+
+    var rechazado = t.aprobacionGarantia === 'RECHAZADO';
+    var cerrado = t.etapa === 'Finalizada' && t.estado === 'Listo';
+    // Al rechazar, ETAPA queda en "Rechazada" en la base de datos (ver
+    // notionRechazarGarantia_ en GestionGarantia.js), pero esa etapa no está
+    // en ETAPAS ni debe verse en la línea de tiempo: el rechazo solo puede
+    // ocurrir desde "Aprobación", así que se usa esa para pintar el paso.
+    renderStepper(rechazado ? 'Aprobación' : t.etapa, { rechazado: rechazado, cerrado: cerrado });
+
+    var cajaRechazo = document.getElementById('r-rechazo');
+    if (rechazado) {
+      cajaRechazo.style.display = 'block';
+      document.getElementById('r-rechazo-texto').textContent = t.comentarios || 'Sin comentario registrado.';
+    } else {
+      cajaRechazo.style.display = 'none';
+    }
+
+    document.getElementById('consulta-resultado').style.display = 'block';
+  }
+
+  function formatearContacto(t) {
+    var partes = [t.nombreContacto, t.telefonoContacto, t.correoContacto].filter(Boolean);
+    return partes.length ? partes.join(' · ') : '—';
+  }
+
+  function formatearMotivo(motivo) {
+    if (!motivo) return '—';
+    return motivo.split(', ').map(function (m) {
+      var lower = m.toLowerCase();
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    }).join(', ');
+  }
+
+  /**
+   * `opciones` es opcional: { rechazado, cerrado }. Sin ella se comporta
+   * como siempre (paso actual resaltado). Con `rechazado` el paso donde se
+   * rechazó queda en rojo y los siguientes en gris (proceso terminado ahí);
+   * con `cerrado` los pasos 1-4 quedan en azul (superados) y el paso final
+   * ("Finalizada") queda en verde, y la caja de abajo cambia de "Etapa
+   * actual" a un mensaje de cierre (ver Styles.html: .is-rejected /
+   * .is-ended / .is-final / .is-closed).
+   */
+  function renderStepper(etapaActual, opciones) {
+    opciones = opciones || {};
+    var contenedor = document.getElementById('r-stepper');
+    contenedor.innerHTML = '';
+    var indiceActual = ETAPAS.findIndex(function (e) { return e.nombre === etapaActual; });
+
+    var track = document.createElement('div');
+    track.className = 'stepper-track';
+
+    ETAPAS.forEach(function (etapa, i) {
+      var estadoPaso;
+      if (opciones.cerrado) {
+        estadoPaso = (i === ETAPAS.length - 1) ? 'is-final' : 'is-done';
+      } else if (opciones.rechazado) {
+        estadoPaso = i < indiceActual ? 'is-done' : (i === indiceActual ? 'is-rejected' : 'is-ended');
+      } else {
+        estadoPaso = i < indiceActual ? 'is-done' : (i === indiceActual ? 'is-current' : '');
+      }
+
+      var step = document.createElement('div');
+      step.className = 'stepper-step ' + estadoPaso;
+
+      var node = document.createElement('div');
+      node.className = 'stepper-node ' + estadoPaso;
+      node.textContent = i + 1;
+      step.appendChild(node);
+
+      var label = document.createElement('div');
+      label.className = 'stepper-label ' + estadoPaso;
+      label.textContent = etapa.corto;
+      step.appendChild(label);
+
+      track.appendChild(step);
+    });
+
+    contenedor.appendChild(track);
+
+    var current = document.createElement('div');
+
+    if (opciones.cerrado) {
+      current.className = 'stepper-current is-closed';
+      current.innerHTML = '<span class="dot"></span><div><div class="eyebrow">Garantía finalizada</div><div class="label">Tu solicitud ha sido finalizada</div></div>';
+    } else if (opciones.rechazado) {
+      current.className = 'stepper-current is-rejected';
+      current.innerHTML = '<span class="dot"></span><div><div class="eyebrow">Garantía rechazada</div><div class="label">Tu solicitud fue rechazada</div></div>';
+    } else {
+      var actual = ETAPAS[indiceActual];
+      current.className = 'stepper-current';
+      current.innerHTML = actual
+        ? '<span class="dot"></span><div><div class="eyebrow">Etapa actual</div><div class="label">' + actual.nombre + '</div><div class="duracion">' + actual.duracion + '</div></div>'
+        : '<div><div class="label">Etapa por definir</div></div>';
+    }
+
+    contenedor.appendChild(current);
+  }
+
+  // ---------------- Helpers ----------------
+  function mostrarError(id, mensaje) {
+    var el = document.getElementById(id);
+    el.textContent = mensaje;
+    el.classList.add('is-visible');
+  }
+
+  function ocultarError(id) {
+    var el = document.getElementById(id);
+    el.classList.remove('is-visible');
+    el.textContent = '';
+  }
+</script>

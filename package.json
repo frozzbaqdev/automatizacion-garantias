@@ -1,0 +1,22 @@
+{
+  "name": "frozz-garantias",
+  "version": "1.0.0",
+  "description": "Google Apps Script para Frozz Garantías",
+  "private": true,
+  "scripts": {
+    "push": "clasp push",
+    "push:force": "clasp push --force",
+    "pull": "clasp pull",
+    "open": "clasp open",
+    "deploy": "npm run push:force && clasp deploy -i AKfycbyImHZW3HIlv_9xSnhfI9_j_J6pXbvkcNokhkRa9gEiohdc0mfWijT5tBQLl02L01-dnA --description \"Despliegue desde npm\"",
+    "versions": "clasp versions",
+    "logs": "clasp logs --simplified"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@google/clasp": "^3.4.1"
+  }
+}

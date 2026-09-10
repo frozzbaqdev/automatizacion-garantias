@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta name="theme-color" content="#0A3D7A">
+  <?!= include('Styles'); ?>
+  <?!= include('EstilosGestion'); ?>
+</head>
+<body>
+  <div class="app">
+    <div class="brandbar">
+      <div class="logo">
+        <img src="data:image/png;base64,<?= logoBase64 ?>" alt="Frozz Colombia">
+      </div>
+      <div class="tag">Panel interno · Gestión de garantías</div>
+    </div>
+
+    <section class="view is-active" style="padding:20px">
+
+      <div id="gestion-cargando" class="card gestion-loader">
+        <div class="spinner" aria-hidden="true"></div>
+        <div class="overlay-cargando-texto">Cargando la garantía…</div>
+      </div>
+      <div class="error-banner" id="gestion-error"></div>
+
+      <div id="gestion-contenido" style="display:none">
+
+        <!-- ===================== Encabezado del ticket ===================== -->
+        <div class="card" id="gestion-header">
+          <div class="ticket-head">
+            <div>
+              <div class="numero" id="g-numero">—</div>
+              <div class="fecha" id="g-fecha">—</div>
+            </div>
+            <span class="badge-estado" id="g-badge"></span>
+          </div>
+          <button type="button" class="btn btn-ghost" id="btn-ver-documentos" style="margin-top:16px">Ver documentos de soporte</button>
+        </div>
+
+        <!-- ===================== Detalle del ticket ===================== -->
+        <div class="card" style="margin-top:14px">
+          <div class="section-title">Información del ticket</div>
+          <dl class="detail-list">
+            <div>
+              <dt>Cliente</dt>
+              <dd id="g-empresa">—</dd>
+            </div>
+            <div>
+              <dt>NIT</dt>
+              <dd id="g-nit">—</dd>
+            </div>
+            <div>
+              <dt>Contacto</dt>
+              <dd id="g-contacto">—</dd>
+            </div>
+            <div id="g-ot-wrap" style="display:none">
+              <dt>Orden de trabajo</dt>
+              <dd id="g-ot">—</dd>
+            </div>
+            <div>
+              <dt>Motivo</dt>
+              <dd id="g-motivo">—</dd>
+            </div>
+            <div>
+              <dt>Descripción</dt>
+              <dd id="g-descripcion">—</dd>
+            </div>
+          </dl>
+        </div>
+
+        <!-- ===================== Iniciar gestión (solo si ESTADO = Sin empezar) ===================== -->
+        <div class="card" id="gestion-iniciar" style="display:none;margin-top:14px">
+          <div class="section-title">Iniciar gestión</div>
+          <div class="error-banner" id="iniciar-error"></div>
+          <form id="form-iniciar" class="stack" novalidate>
+            <div class="field">
+              <label for="iniciar-prioridad">Prioridad</label>
+              <select id="iniciar-prioridad" required>
+                <option value="" disabled selected>Selecciona una prioridad</option>
+                <option value="Baja">Baja</option>
+                <option value="Media">Media</option>
+                <option value="Alta">Alta</option>
+                <option value="Urgente">Urgente</option>
+              </select>
+              <span class="field-error" id="error-iniciar-prioridad"></span>
+            </div>
+            <div class="field">
+              <label for="iniciar-lider">Líder responsable</label>
+              <select id="iniciar-lider" required>
+                <option value="" disabled selected>Cargando personal…</option>
+              </select>
+              <span class="field-error" id="error-iniciar-lider"></span>
+            </div>
+            <div class="field" id="iniciar-lider-correo-wrap" style="display:none">
+              <label for="iniciar-lider-correo">Correo del líder responsable</label>
+              <div class="input-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 6l-10 7L2 6"/></svg>
+                <input type="email" id="iniciar-lider-correo" maxlength="200" placeholder="correo@ejemplo.com">
+              </div>
+              <span class="field-error" id="error-iniciar-lider-correo"></span>
+            </div>
+            <div class="field">
+              <label for="iniciar-operario">Operario responsable</label>
+              <select id="iniciar-operario" required>
+                <option value="" disabled selected>Cargando personal…</option>
+              </select>
+              <span class="field-error" id="error-iniciar-operario"></span>
+            </div>
+            <div class="field">
+              <label for="iniciar-fecha-entrega">Fecha estimada de entrega</label>
+              <div class="input-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                <input type="date" id="iniciar-fecha-entrega" required>
+              </div>
+              <span class="field-error" id="error-iniciar-fecha-entrega"></span>
+            </div>
+            <div class="field">
+              <label for="iniciar-plan">Plan de acción (link)</label>
+              <div class="input-icon">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                <input type="url" id="iniciar-plan" maxlength="500" placeholder="https://…">
+              </div>
+            </div>
+            <button type="submit" class="btn" id="btn-iniciar">Iniciar gestión</button>
+          </form>
+        </div>
+
+        <!-- ===================== Estado / stepper / acciones ===================== -->
+        <div class="card" id="gestion-stepper-card" style="display:none;margin-top:14px">
+          <div class="overlay-cargando" id="stepper-cargando" style="display:none">
+            <div class="spinner" aria-hidden="true"></div>
+            <div class="overlay-cargando-texto" id="stepper-cargando-texto">Cargando…</div>
+          </div>
+          <div class="section-title">Estado de la garantía</div>
+          <div class="stepper" id="g-stepper"></div>
+          <div id="gestion-acciones"></div>
+        </div>
+
+        <!-- ===================== Asignación: solo abierta por defecto en Revisión inicial;
+             en las demás etapas se abre con el botón "Editar asignación" ===================== -->
+        <div class="card" id="gestion-asignacion" style="display:none;margin-top:14px">
+          <div class="section-title">Asignación</div>
+          <div style="text-align:center;margin-bottom:16px">
+            <button type="button" class="cliente-confirmado-cambiar" id="btn-toggle-asignacion">Editar asignación</button>
+          </div>
+          <div class="error-banner" id="asignacion-error"></div>
+          <div id="asignacion-campos" style="display:none">
+            <form id="form-asignacion" class="stack" novalidate>
+              <div class="field">
+                <label for="asig-prioridad">Prioridad</label>
+                <select id="asig-prioridad">
+                  <option value="Baja">Baja</option>
+                  <option value="Media">Media</option>
+                  <option value="Alta">Alta</option>
+                  <option value="Urgente">Urgente</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="asig-lider">Líder responsable</label>
+                <select id="asig-lider"></select>
+              </div>
+              <div class="field" id="asig-lider-correo-wrap" style="display:none">
+                <label for="asig-lider-correo">Correo del líder responsable</label>
+                <div class="input-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M22 6l-10 7L2 6"/></svg>
+                  <input type="email" id="asig-lider-correo" maxlength="200" placeholder="correo@ejemplo.com">
+                </div>
+                <span class="field-error" id="error-asig-lider-correo"></span>
+              </div>
+              <div class="field">
+                <label for="asig-operario">Operario responsable</label>
+                <select id="asig-operario"></select>
+              </div>
+              <div class="field">
+                <label for="asig-fecha-entrega">Fecha estimada de entrega</label>
+                <div class="input-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                  <input type="date" id="asig-fecha-entrega">
+                </div>
+              </div>
+              <div class="field">
+                <label for="asig-plan">Plan de acción (link)</label>
+                <div class="input-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                  <input type="url" id="asig-plan" maxlength="500" placeholder="https://…">
+                </div>
+              </div>
+              <button type="submit" class="btn btn-ghost" id="btn-guardar-asignacion">Guardar cambios</button>
+            </form>
+          </div>
+        </div>
+
+      </div>
+    </section>
+  </div>
+
+  <!-- ===================== Modal de confirmación genérico ===================== -->
+  <div class="modal-overlay" id="modal-confirmar" style="display:none" role="dialog" aria-modal="true" aria-labelledby="modal-confirmar-titulo">
+    <div class="modal-card">
+      <div class="modal-icono" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4"/><path d="M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>
+      </div>
+      <div class="modal-titulo" id="modal-confirmar-titulo">¿Confirmas esta acción?</div>
+      <div class="modal-texto" id="modal-confirmar-texto"></div>
+      <div class="confirm-row">
+        <button type="button" class="btn btn-ghost" id="modal-confirmar-no">No</button>
+        <button type="button" class="btn btn-success" id="modal-confirmar-si">Sí</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- JSON.stringify ya escapa comillas/backslashes para que sea un string
+       JS válido; el .replace adicional evita que un "id" manipulado en la
+       URL con "</script>" rompa fuera de esta etiqueta (JSON.stringify no
+       escapa "<" por defecto). -->
+  <script>var GESTION_PAGE_ID = <?!= JSON.stringify(pageId).replace(/</g, '\\u003c') ?>;</script>
+  <?!= include('JavaScriptGestion'); ?>
+</body>
+</html>

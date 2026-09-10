@@ -1,0 +1,745 @@
+<script>
+  var ETAPAS_GESTION = ['Revisión inicial', 'Diagnóstico', 'Aprobación', 'En ejecución', 'Finalizada'];
+
+  var GARANTIA_ACTUAL = null;
+  var PERSONAL_ACTIVO = [];
+  var asignacionAbierta = false;
+
+  document.addEventListener('DOMContentLoaded', function () {
+    if (!GESTION_PAGE_ID) {
+      mostrarErrorCarga_('El link de gestión no es válido.');
+      return;
+    }
+    cargarGarantia_();
+  });
+
+  // ---------------- Carga inicial ----------------
+  function cargarGarantia_() {
+    google.script.run
+      .withSuccessHandler(function (res) {
+        if (!res || !res.ok) {
+          mostrarErrorCarga_((res && res.error) || 'No se pudo cargar la garantía.');
+          return;
+        }
+        GARANTIA_ACTUAL = res.ticket;
+        cargarPersonalYRenderizar_();
+      })
+      .withFailureHandler(function () {
+        mostrarErrorCarga_('Ocurrió un problema al cargar la garantía. Intenta de nuevo.');
+      })
+      .obtenerGarantiaParaGestion(GESTION_PAGE_ID);
+  }
+
+  function cargarPersonalYRenderizar_() {
+    google.script.run
+      .withSuccessHandler(function (res) {
+        PERSONAL_ACTIVO = (res && res.ok) ? res.personal : [];
+        renderizarTodo_();
+      })
+      .withFailureHandler(function () {
+        PERSONAL_ACTIVO = [];
+        renderizarTodo_();
+      })
+      .listarPersonalActivo();
+  }
+
+  function mostrarErrorCarga_(mensaje) {
+    document.getElementById('gestion-cargando').style.display = 'none';
+    mostrarError('gestion-error', mensaje);
+  }
+
+  // ---------------- Render principal ----------------
+  function renderizarTodo_() {
+    document.getElementById('gestion-cargando').style.display = 'none';
+    ocultarError('gestion-error');
+    document.getElementById('gestion-contenido').style.display = 'block';
+
+    renderizarHeader_();
+    renderizarDetalle_();
+
+    var sinEmpezar = GARANTIA_ACTUAL.estado === 'Sin empezar';
+    document.getElementById('gestion-iniciar').style.display = sinEmpezar ? 'block' : 'none';
+    document.getElementById('gestion-stepper-card').style.display = sinEmpezar ? 'none' : 'block';
+    document.getElementById('gestion-asignacion').style.display = sinEmpezar ? 'none' : 'block';
+
+    if (sinEmpezar) {
+      inicializarFormIniciar_();
+    } else {
+      renderizarStepperGestion_();
+      renderizarAcciones_();
+      renderizarAsignacionToggle_();
+      inicializarFormAsignacion_();
+    }
+  }
+
+  function renderizarHeader_() {
+    var t = GARANTIA_ACTUAL;
+    document.getElementById('g-numero').textContent = t.numero;
+    document.getElementById('g-fecha').textContent = t.fecha ? 'Creado el ' + t.fecha : '';
+
+    var badge = document.getElementById('g-badge');
+    badge.className = 'badge-estado';
+    if (t.aprobacionGarantia === 'RECHAZADO') {
+      badge.textContent = 'Rechazada';
+      badge.classList.add('badge-danger');
+    } else if (t.etapa === 'Finalizada' && t.estado === 'Listo') {
+      badge.textContent = 'Finalizada';
+      badge.classList.add('badge-success');
+    } else if (t.estado === 'Sin empezar') {
+      badge.textContent = 'Sin iniciar';
+      badge.classList.add('badge-muted');
+    } else {
+      badge.textContent = t.etapa || t.estado;
+      badge.classList.add('badge-brand');
+    }
+
+    var btnDocs = document.getElementById('btn-ver-documentos');
+    if (t.documentosSoporte) {
+      btnDocs.style.display = 'inline-flex';
+      btnDocs.onclick = function () { window.open(t.documentosSoporte, '_blank', 'noopener'); };
+    } else {
+      btnDocs.style.display = 'none';
+    }
+  }
+
+  function renderizarDetalle_() {
+    var t = GARANTIA_ACTUAL;
+    document.getElementById('g-empresa').textContent = t.clienteEmpresa || '—';
+    document.getElementById('g-nit').textContent = t.clienteNit || '—';
+    document.getElementById('g-contacto').textContent = [t.nombreContacto, t.telefonoContacto, t.correoContacto].filter(Boolean).join(' · ') || '—';
+
+    var otWrap = document.getElementById('g-ot-wrap');
+    if (t.ordenTrabajo) {
+      otWrap.style.display = 'block';
+      document.getElementById('g-ot').textContent = t.ordenTrabajo;
+    } else {
+      otWrap.style.display = 'none';
+    }
+
+    document.getElementById('g-motivo').textContent = formatearMotivoGestion_(t.motivo);
+    document.getElementById('g-descripcion').textContent = t.descripcionGeneral || '—';
+  }
+
+  function formatearMotivoGestion_(motivo) {
+    if (!motivo) return '—';
+    return motivo.split(', ').map(function (m) {
+      var lower = m.toLowerCase();
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    }).join(', ');
+  }
+
+  // ---------------- Desplegables de personal activo ----------------
+  function poblarSelectPersonal_(selectId, valorSeleccionado) {
+    var select = document.getElementById(selectId);
+    select.innerHTML = '';
+
+    var placeholder = document.createElement('option');
+    placeholder.value = '';
+    placeholder.disabled = true;
+    placeholder.textContent = PERSONAL_ACTIVO.length ? 'Selecciona una persona' : 'No hay personal activo disponible';
+    if (!valorSeleccionado) placeholder.selected = true;
+    select.appendChild(placeholder);
+
+    PERSONAL_ACTIVO.forEach(function (persona) {
+      var option = document.createElement('option');
+      option.value = persona.pageId;
+      option.textContent = persona.nombre;
+      if (persona.pageId === valorSeleccionado) option.selected = true;
+      select.appendChild(option);
+    });
+  }
+
+  /**
+   * El líder responsable puede no tener "Correo corporativo" registrado en
+   * PERSONAL ACTIVO (ver Personal.js): en ese caso se despliega un campo
+   * para ingresarlo a mano, que el backend guarda en
+   * GARANTIAS.CORREO LIDER RESPONSABLE (ver validarCorreoLider_ en
+   * GestionGarantia.js). Se re-evalúa cada vez que cambia el líder
+   * seleccionado, tanto en "Iniciar gestión" como en "Asignación".
+   */
+  function liderTieneCorreoPersonal_(liderPageId) {
+    var persona = PERSONAL_ACTIVO.filter(function (p) { return p.pageId === liderPageId; })[0];
+    return !!(persona && persona.correo);
+  }
+
+  function actualizarVisibilidadCorreoLider_(selectId, wrapId, inputId) {
+    var liderPageId = document.getElementById(selectId).value;
+    var necesitaCorreo = !!liderPageId && !liderTieneCorreoPersonal_(liderPageId);
+    document.getElementById(wrapId).style.display = necesitaCorreo ? 'block' : 'none';
+    if (!necesitaCorreo) {
+      document.getElementById(inputId).value = '';
+      limpiarErrorCampoGestion_(inputId);
+    }
+  }
+
+  // ---------------- Iniciar gestión ----------------
+  function inicializarFormIniciar_() {
+    poblarSelectPersonal_('iniciar-lider', '');
+    poblarSelectPersonal_('iniciar-operario', '');
+    actualizarVisibilidadCorreoLider_('iniciar-lider', 'iniciar-lider-correo-wrap', 'iniciar-lider-correo');
+
+    var selectLider = document.getElementById('iniciar-lider');
+    if (!selectLider.dataset.wiredCorreo) {
+      selectLider.dataset.wiredCorreo = '1';
+      selectLider.addEventListener('change', function () {
+        actualizarVisibilidadCorreoLider_('iniciar-lider', 'iniciar-lider-correo-wrap', 'iniciar-lider-correo');
+      });
+    }
+
+    var form = document.getElementById('form-iniciar');
+    if (form.dataset.wired) return;
+    form.dataset.wired = '1';
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      ocultarError('iniciar-error');
+      ['iniciar-prioridad', 'iniciar-lider', 'iniciar-operario', 'iniciar-fecha-entrega', 'iniciar-lider-correo'].forEach(limpiarErrorCampoGestion_);
+
+      var prioridad = document.getElementById('iniciar-prioridad').value;
+      var liderPageId = document.getElementById('iniciar-lider').value;
+      var operarioPageId = document.getElementById('iniciar-operario').value;
+      var fechaEstimadaEntrega = document.getElementById('iniciar-fecha-entrega').value;
+      var planAccionUrl = document.getElementById('iniciar-plan').value.trim();
+      var necesitaCorreoLider = document.getElementById('iniciar-lider-correo-wrap').style.display !== 'none';
+      var liderCorreo = document.getElementById('iniciar-lider-correo').value.trim();
+
+      var errores = {};
+      if (!prioridad) errores['iniciar-prioridad'] = 'Selecciona una prioridad.';
+      if (!liderPageId) errores['iniciar-lider'] = 'Selecciona un líder responsable.';
+      if (!operarioPageId) errores['iniciar-operario'] = 'Selecciona un operario responsable.';
+      if (!fechaEstimadaEntrega) errores['iniciar-fecha-entrega'] = 'Ingresa la fecha estimada de entrega.';
+      if (necesitaCorreoLider) {
+        if (!liderCorreo) {
+          errores['iniciar-lider-correo'] = 'El líder seleccionado no tiene correo registrado: ingresa uno.';
+        } else if (!/^\S+@\S+\.\S+$/.test(liderCorreo)) {
+          errores['iniciar-lider-correo'] = 'Ingresa un correo válido.';
+        }
+      }
+
+      var primerError = null;
+      Object.keys(errores).forEach(function (id) {
+        var campo = marcarErrorCampoGestion_(id, errores[id]);
+        if (!primerError) primerError = campo;
+      });
+      if (primerError) { primerError.focus(); return; }
+
+      var btn = document.getElementById('btn-iniciar');
+      btn.disabled = true;
+      btn.classList.add('is-loading');
+      btn.textContent = 'Iniciando…';
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          btn.disabled = false;
+          btn.classList.remove('is-loading');
+          btn.textContent = 'Iniciar gestión';
+          if (!res || !res.ok) {
+            mostrarError('iniciar-error', (res && res.error) || 'No se pudo iniciar la gestión.');
+            return;
+          }
+          GARANTIA_ACTUAL = res.ticket;
+          renderizarTodo_();
+        })
+        .withFailureHandler(function () {
+          btn.disabled = false;
+          btn.classList.remove('is-loading');
+          btn.textContent = 'Iniciar gestión';
+          mostrarError('iniciar-error', 'Ocurrió un problema al iniciar la gestión. Intenta de nuevo.');
+        })
+        .iniciarGestionGarantia(GESTION_PAGE_ID, {
+          prioridad: prioridad,
+          liderPageId: liderPageId,
+          operarioPageId: operarioPageId,
+          fechaEstimadaEntrega: fechaEstimadaEntrega,
+          planAccionUrl: planAccionUrl,
+          liderCorreo: liderCorreo
+        });
+    });
+  }
+
+  function marcarErrorCampoGestion_(id, mensaje) {
+    var campo = document.getElementById(id);
+    var errorEl = document.getElementById('error-' + id);
+    if (errorEl) errorEl.textContent = mensaje;
+    var contenedorConBorde = campo.closest('.input-icon') || campo;
+    contenedorConBorde.classList.add('is-invalid');
+    return campo;
+  }
+
+  function limpiarErrorCampoGestion_(id) {
+    var campo = document.getElementById(id);
+    if (!campo) return;
+    var errorEl = document.getElementById('error-' + id);
+    if (errorEl) errorEl.textContent = '';
+    var contenedorConBorde = campo.closest('.input-icon') || campo;
+    contenedorConBorde.classList.remove('is-invalid');
+  }
+
+  // ---------------- Stepper del panel ----------------
+  function renderizarStepperGestion_() {
+    var t = GARANTIA_ACTUAL;
+    var contenedor = document.getElementById('g-stepper');
+    contenedor.innerHTML = '';
+
+    var rechazado = t.aprobacionGarantia === 'RECHAZADO';
+    // Al rechazar, ETAPA queda en "Rechazada" en la base de datos (ver
+    // notionRechazarGarantia_ en GestionGarantia.js), pero esa etapa no está
+    // en ETAPAS_GESTION ni debe verse en el panel: el rechazo solo puede
+    // ocurrir desde "Aprobación", así que se usa esa para ubicar el paso.
+    var indiceActual = ETAPAS_GESTION.indexOf(rechazado ? 'Aprobación' : t.etapa);
+    var cerrado = t.etapa === 'Finalizada' && t.estado === 'Listo';
+
+    var track = document.createElement('div');
+    track.className = 'stepper-track';
+
+    ETAPAS_GESTION.forEach(function (nombreEtapa, i) {
+      var estadoPaso;
+      if (cerrado) {
+        estadoPaso = (i === ETAPAS_GESTION.length - 1) ? 'is-final' : 'is-done';
+      } else if (rechazado) {
+        estadoPaso = i < indiceActual ? 'is-done' : (i === indiceActual ? 'is-rejected' : 'is-ended');
+      } else {
+        estadoPaso = i < indiceActual ? 'is-done' : (i === indiceActual ? 'is-current' : '');
+      }
+
+      var step = document.createElement('div');
+      step.className = 'stepper-step ' + estadoPaso;
+
+      var node = document.createElement('div');
+      node.className = 'stepper-node ' + estadoPaso;
+      node.textContent = i + 1;
+      step.appendChild(node);
+
+      var label = document.createElement('div');
+      label.className = 'stepper-label ' + estadoPaso;
+      label.textContent = nombreEtapa;
+      step.appendChild(label);
+
+      track.appendChild(step);
+    });
+
+    contenedor.appendChild(track);
+  }
+
+  // ---------------- Panel de acciones (según etapa/estado) ----------------
+  function renderizarAcciones_() {
+    var contenedor = document.getElementById('gestion-acciones');
+    contenedor.innerHTML = '';
+    var t = GARANTIA_ACTUAL;
+
+    var banner = document.createElement('div');
+    banner.className = 'error-banner';
+    banner.id = 'acciones-error';
+    contenedor.appendChild(banner);
+
+    if (t.aprobacionGarantia === 'RECHAZADO') {
+      contenedor.appendChild(crearBadgeAccion_('Garantía rechazada', 'badge-danger'));
+      if (t.comentarios) {
+        var cajaRechazo = document.createElement('div');
+        cajaRechazo.className = 'rechazo-box';
+        cajaRechazo.style.marginTop = '14px';
+        cajaRechazo.innerHTML = '<div class="rechazo-box-eyebrow">Motivo del rechazo</div><div class="rechazo-box-texto"></div>';
+        cajaRechazo.querySelector('.rechazo-box-texto').textContent = t.comentarios;
+        contenedor.appendChild(cajaRechazo);
+      }
+      return;
+    }
+
+    if (t.etapa === 'Finalizada' && t.estado === 'Listo') {
+      contenedor.appendChild(crearBadgeAccion_('Garantía finalizada', 'badge-success'));
+      return;
+    }
+
+    if (t.etapa === 'Revisión inicial' || t.etapa === 'Diagnóstico') {
+      var siguiente = ETAPAS_GESTION[ETAPAS_GESTION.indexOf(t.etapa) + 1];
+      var btnAvanzar = document.createElement('button');
+      btnAvanzar.type = 'button';
+      btnAvanzar.className = 'btn';
+      btnAvanzar.textContent = 'Avanzar a "' + siguiente + '"';
+      btnAvanzar.addEventListener('click', function () { avanzarEtapa_(siguiente, btnAvanzar); });
+      contenedor.appendChild(btnAvanzar);
+      return;
+    }
+
+    if (t.etapa === 'Aprobación') {
+      contenedor.appendChild(crearPanelAprobacion_());
+      return;
+    }
+
+    if (t.etapa === 'En ejecución') {
+      var btnFinalizar = document.createElement('button');
+      btnFinalizar.type = 'button';
+      btnFinalizar.className = 'btn';
+      btnFinalizar.textContent = 'Finalizar garantía';
+      btnFinalizar.addEventListener('click', function () { finalizarGarantia_(btnFinalizar); });
+      contenedor.appendChild(btnFinalizar);
+    }
+  }
+
+  function crearBadgeAccion_(texto, clase) {
+    var badge = document.createElement('span');
+    badge.className = 'badge-estado ' + clase;
+    badge.textContent = texto;
+    return badge;
+  }
+
+  function crearPanelAprobacion_() {
+    var wrap = document.createElement('div');
+
+    var fila = document.createElement('div');
+    fila.className = 'confirm-row';
+
+    var btnAprobar = document.createElement('button');
+    btnAprobar.type = 'button';
+    btnAprobar.className = 'btn btn-success';
+    btnAprobar.textContent = 'Aprobar';
+
+    var btnRechazar = document.createElement('button');
+    btnRechazar.type = 'button';
+    btnRechazar.className = 'btn btn-danger';
+    btnRechazar.textContent = 'Rechazar';
+
+    fila.appendChild(btnAprobar);
+    fila.appendChild(btnRechazar);
+    wrap.appendChild(fila);
+
+    var panelComentario = document.createElement('div');
+    panelComentario.className = 'comentario-panel';
+    panelComentario.style.display = 'none';
+    wrap.appendChild(panelComentario);
+
+    function abrirPanel(esAprobar) {
+      panelComentario.innerHTML = '';
+      panelComentario.style.display = 'block';
+      fila.style.display = 'none';
+
+      var label = document.createElement('label');
+      label.className = 'field-label-comentario';
+      label.textContent = esAprobar ? 'Comentario (por qué apruebas esta garantía)' : 'Comentario (por qué rechazas esta garantía)';
+      panelComentario.appendChild(label);
+
+      var textarea = document.createElement('textarea');
+      textarea.rows = 3;
+      textarea.placeholder = 'Escribe el motivo…';
+      panelComentario.appendChild(textarea);
+
+      var errorSpan = document.createElement('span');
+      errorSpan.className = 'field-error';
+      panelComentario.appendChild(errorSpan);
+
+      var filaConfirmar = document.createElement('div');
+      filaConfirmar.className = 'confirm-row';
+
+      var btnConfirmar = document.createElement('button');
+      btnConfirmar.type = 'button';
+      btnConfirmar.className = esAprobar ? 'btn btn-success' : 'btn btn-danger';
+      btnConfirmar.textContent = esAprobar ? 'Confirmar aprobación' : 'Confirmar rechazo';
+
+      var btnCancelar = document.createElement('button');
+      btnCancelar.type = 'button';
+      btnCancelar.className = 'btn btn-ghost';
+      btnCancelar.textContent = 'Cancelar';
+      btnCancelar.addEventListener('click', function () {
+        panelComentario.style.display = 'none';
+        panelComentario.innerHTML = '';
+        fila.style.display = 'flex';
+      });
+
+      btnConfirmar.addEventListener('click', function () {
+        var texto = textarea.value.trim();
+        if (!texto) {
+          errorSpan.textContent = 'Escribe un comentario.';
+          textarea.focus();
+          return;
+        }
+        errorSpan.textContent = '';
+        if (esAprobar) {
+          aprobarGarantia_(texto, btnConfirmar);
+        } else {
+          rechazarGarantia_(texto, btnConfirmar);
+        }
+      });
+
+      filaConfirmar.appendChild(btnConfirmar);
+      filaConfirmar.appendChild(btnCancelar);
+      panelComentario.appendChild(filaConfirmar);
+
+      textarea.focus();
+    }
+
+    btnAprobar.addEventListener('click', function () { abrirPanel(true); });
+    btnRechazar.addEventListener('click', function () { abrirPanel(false); });
+
+    return wrap;
+  }
+
+  // ---------------- Acciones: llamadas al backend ----------------
+  function avanzarEtapa_(etapaDestino, btn) {
+    ocultarError('acciones-error');
+    btn.disabled = true;
+    btn.classList.add('is-loading');
+    mostrarCargandoEtapa_(etapaDestino);
+    google.script.run
+      .withSuccessHandler(function (res) {
+        ocultarCargandoEtapa_();
+        btn.disabled = false;
+        btn.classList.remove('is-loading');
+        if (!res || !res.ok) {
+          mostrarError('acciones-error', (res && res.error) || 'No se pudo avanzar de etapa.');
+          return;
+        }
+        GARANTIA_ACTUAL = res.ticket;
+        renderizarTodo_();
+      })
+      .withFailureHandler(function () {
+        ocultarCargandoEtapa_();
+        btn.disabled = false;
+        btn.classList.remove('is-loading');
+        mostrarError('acciones-error', 'Ocurrió un problema al avanzar de etapa. Intenta de nuevo.');
+      })
+      .avanzarEtapaGarantia(GESTION_PAGE_ID, etapaDestino);
+  }
+
+  function mostrarCargandoEtapa_(etapaDestino) {
+    document.getElementById('stepper-cargando-texto').textContent = 'Cargando etapa "' + etapaDestino + '"…';
+    document.getElementById('stepper-cargando').style.display = 'flex';
+  }
+
+  function ocultarCargandoEtapa_() {
+    document.getElementById('stepper-cargando').style.display = 'none';
+  }
+
+  function aprobarGarantia_(comentario, btn) {
+    ocultarError('acciones-error');
+    btn.disabled = true;
+    btn.classList.add('is-loading');
+    btn.textContent = 'Aprobando…';
+    google.script.run
+      .withSuccessHandler(function (res) {
+        if (!res || !res.ok) {
+          btn.disabled = false;
+          btn.classList.remove('is-loading');
+          btn.textContent = 'Confirmar aprobación';
+          mostrarError('acciones-error', (res && res.error) || 'No se pudo aprobar la garantía.');
+          return;
+        }
+        GARANTIA_ACTUAL = res.ticket;
+        renderizarTodo_();
+      })
+      .withFailureHandler(function () {
+        btn.disabled = false;
+        btn.classList.remove('is-loading');
+        btn.textContent = 'Confirmar aprobación';
+        mostrarError('acciones-error', 'Ocurrió un problema al aprobar la garantía. Intenta de nuevo.');
+      })
+      .aprobarGarantia(GESTION_PAGE_ID, comentario);
+  }
+
+  function rechazarGarantia_(comentario, btn) {
+    ocultarError('acciones-error');
+    btn.disabled = true;
+    btn.classList.add('is-loading');
+    btn.textContent = 'Rechazando…';
+    google.script.run
+      .withSuccessHandler(function (res) {
+        if (!res || !res.ok) {
+          btn.disabled = false;
+          btn.classList.remove('is-loading');
+          btn.textContent = 'Confirmar rechazo';
+          mostrarError('acciones-error', (res && res.error) || 'No se pudo rechazar la garantía.');
+          return;
+        }
+        GARANTIA_ACTUAL = res.ticket;
+        renderizarTodo_();
+      })
+      .withFailureHandler(function () {
+        btn.disabled = false;
+        btn.classList.remove('is-loading');
+        btn.textContent = 'Confirmar rechazo';
+        mostrarError('acciones-error', 'Ocurrió un problema al rechazar la garantía. Intenta de nuevo.');
+      })
+      .rechazarGarantia(GESTION_PAGE_ID, comentario);
+  }
+
+  // ---------------- Modal de confirmación (reemplaza window.confirm) ----------------
+  function confirmarAccion_(opciones) {
+    return new Promise(function (resolve) {
+      var overlay = document.getElementById('modal-confirmar');
+      var btnSi = document.getElementById('modal-confirmar-si');
+      var btnNo = document.getElementById('modal-confirmar-no');
+
+      document.getElementById('modal-confirmar-titulo').textContent = opciones.titulo;
+      document.getElementById('modal-confirmar-texto').textContent = opciones.texto;
+      overlay.style.display = 'flex';
+
+      function cerrar(resultado) {
+        overlay.style.display = 'none';
+        btnSi.removeEventListener('click', onSi);
+        btnNo.removeEventListener('click', onNo);
+        overlay.removeEventListener('click', onOverlay);
+        document.removeEventListener('keydown', onTecla);
+        resolve(resultado);
+      }
+      function onSi() { cerrar(true); }
+      function onNo() { cerrar(false); }
+      function onOverlay(e) { if (e.target === overlay) cerrar(false); }
+      function onTecla(e) { if (e.key === 'Escape') cerrar(false); }
+
+      btnSi.addEventListener('click', onSi);
+      btnNo.addEventListener('click', onNo);
+      overlay.addEventListener('click', onOverlay);
+      document.addEventListener('keydown', onTecla);
+    });
+  }
+
+  function finalizarGarantia_(btn) {
+    ocultarError('acciones-error');
+    confirmarAccion_({
+      titulo: '¿Finalizar garantía?',
+      texto: 'Esta acción cierra el ticket y no se puede deshacer.'
+    }).then(function (confirmado) {
+      if (!confirmado) return;
+
+      btn.disabled = true;
+      btn.classList.add('is-loading');
+      btn.textContent = 'Finalizando…';
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (!res || !res.ok) {
+            btn.disabled = false;
+            btn.classList.remove('is-loading');
+            btn.textContent = 'Finalizar garantía';
+            mostrarError('acciones-error', (res && res.error) || 'No se pudo finalizar la garantía.');
+            return;
+          }
+          GARANTIA_ACTUAL = res.ticket;
+          renderizarTodo_();
+        })
+        .withFailureHandler(function () {
+          btn.disabled = false;
+          btn.classList.remove('is-loading');
+          btn.textContent = 'Finalizar garantía';
+          mostrarError('acciones-error', 'Ocurrió un problema al finalizar la garantía. Intenta de nuevo.');
+        })
+        .finalizarGarantia(GESTION_PAGE_ID);
+    });
+  }
+
+  // ---------------- Asignación (editable en cualquier momento) ----------------
+  /**
+   * El cuadro de asignación viene oculto por defecto en todas las etapas
+   * (los datos iniciales ya se piden en "Iniciar gestión"): solo se abre si
+   * el usuario hace clic en "Editar asignación".
+   */
+  function renderizarAsignacionToggle_() {
+    asignacionAbierta = false;
+    actualizarVisibilidadAsignacion_();
+
+    var btn = document.getElementById('btn-toggle-asignacion');
+    if (btn.dataset.wired) return;
+    btn.dataset.wired = '1';
+    btn.addEventListener('click', function () {
+      asignacionAbierta = !asignacionAbierta;
+      actualizarVisibilidadAsignacion_();
+    });
+  }
+
+  function actualizarVisibilidadAsignacion_() {
+    document.getElementById('asignacion-campos').style.display = asignacionAbierta ? 'block' : 'none';
+    document.getElementById('btn-toggle-asignacion').textContent = asignacionAbierta ? 'Ocultar' : 'Editar asignación';
+  }
+
+  function inicializarFormAsignacion_() {
+    var t = GARANTIA_ACTUAL;
+    poblarSelectPersonal_('asig-lider', t.liderPageId);
+    poblarSelectPersonal_('asig-operario', t.operarioPageId);
+    document.getElementById('asig-prioridad').value = t.prioridad || 'Baja';
+    document.getElementById('asig-fecha-entrega').value = t.fechaEstimadaEntrega || '';
+    document.getElementById('asig-plan').value = t.planDeAccion || '';
+    document.getElementById('asig-lider-correo').value = t.liderCorreo || '';
+    actualizarVisibilidadCorreoLider_('asig-lider', 'asig-lider-correo-wrap', 'asig-lider-correo');
+
+    var selectLider = document.getElementById('asig-lider');
+    if (!selectLider.dataset.wiredCorreo) {
+      selectLider.dataset.wiredCorreo = '1';
+      selectLider.addEventListener('change', function () {
+        actualizarVisibilidadCorreoLider_('asig-lider', 'asig-lider-correo-wrap', 'asig-lider-correo');
+      });
+    }
+
+    var form = document.getElementById('form-asignacion');
+    if (form.dataset.wired) return;
+    form.dataset.wired = '1';
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      ocultarError('asignacion-error');
+      limpiarErrorCampoGestion_('asig-lider-correo');
+
+      var necesitaCorreoLider = document.getElementById('asig-lider-correo-wrap').style.display !== 'none';
+      var liderCorreo = document.getElementById('asig-lider-correo').value.trim();
+
+      if (necesitaCorreoLider) {
+        var mensajeError = '';
+        if (!liderCorreo) {
+          mensajeError = 'El líder seleccionado no tiene correo registrado: ingresa uno.';
+        } else if (!/^\S+@\S+\.\S+$/.test(liderCorreo)) {
+          mensajeError = 'Ingresa un correo válido.';
+        }
+        if (mensajeError) {
+          marcarErrorCampoGestion_('asig-lider-correo', mensajeError).focus();
+          return;
+        }
+      }
+
+      var datos = {
+        prioridad: document.getElementById('asig-prioridad').value,
+        liderPageId: document.getElementById('asig-lider').value,
+        operarioPageId: document.getElementById('asig-operario').value,
+        fechaEstimadaEntrega: document.getElementById('asig-fecha-entrega').value,
+        planAccionUrl: document.getElementById('asig-plan').value.trim(),
+        liderCorreo: liderCorreo
+      };
+
+      var btn = document.getElementById('btn-guardar-asignacion');
+      btn.disabled = true;
+      btn.classList.add('is-loading');
+      btn.textContent = 'Guardando…';
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          btn.disabled = false;
+          btn.classList.remove('is-loading');
+          btn.textContent = 'Guardar cambios';
+          if (!res || !res.ok) {
+            mostrarError('asignacion-error', (res && res.error) || 'No se pudo guardar la asignación.');
+            return;
+          }
+          GARANTIA_ACTUAL = res.ticket;
+          renderizarHeader_();
+        })
+        .withFailureHandler(function () {
+          btn.disabled = false;
+          btn.classList.remove('is-loading');
+          btn.textContent = 'Guardar cambios';
+          mostrarError('asignacion-error', 'Ocurrió un problema al guardar los cambios. Intenta de nuevo.');
+        })
+        .guardarAsignacionGarantia(GESTION_PAGE_ID, datos);
+    });
+  }
+
+  // ---------------- Helpers ----------------
+  function mostrarError(id, mensaje) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = mensaje;
+    el.classList.add('is-visible');
+  }
+
+  function ocultarError(id) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.classList.remove('is-visible');
+    el.textContent = '';
+  }
+</script>

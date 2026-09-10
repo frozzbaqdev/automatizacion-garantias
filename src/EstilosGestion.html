@@ -1,0 +1,144 @@
+<style>
+  /* Estilos exclusivos del panel interno de gestión (Gestionar.html).
+     Se suman a los de Styles.html, no lo reemplazan: reutiliza los mismos
+     tokens de color, tipografías y componentes (.card, .field, .btn, etc.). */
+
+  /* ---------- Insignias de estado (encabezado y acciones) ---------- */
+  .badge-estado {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    padding: 5px 12px;
+    border-radius: 999px;
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .badge-estado.badge-brand { background: rgba(20, 103, 199, 0.12); color: var(--brand-deep); }
+  .badge-estado.badge-success { background: var(--success-soft); color: var(--success); }
+  .badge-estado.badge-danger { background: var(--danger-soft); color: var(--danger); }
+  .badge-estado.badge-muted { background: var(--paper-tint); color: var(--ink-soft); }
+
+  /* ---------- Variantes de botón (Aprobar / Rechazar) ---------- */
+  .btn.btn-success {
+    background: linear-gradient(120deg, #1E8F6F 0%, #38B58C 100%);
+    box-shadow: 0 10px 20px -8px rgba(30, 143, 111, 0.45);
+  }
+
+  .btn.btn-danger {
+    background: linear-gradient(120deg, #C23A2E 0%, #E1584A 100%);
+    box-shadow: 0 10px 20px -8px rgba(194, 58, 46, 0.45);
+  }
+
+  .confirm-row { display: flex; gap: 10px; }
+  .confirm-row .btn { flex: 1; }
+
+  /* ---------- Panel de comentario (Aprobar/Rechazar/Avanzar) ---------- */
+  .comentario-panel { margin-top: 14px; }
+
+  .comentario-panel .field-label-comentario {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ink-soft);
+    margin-bottom: 8px;
+  }
+
+  .comentario-panel textarea {
+    width: 100%;
+    border: 1.5px solid var(--line);
+    border-radius: 12px;
+    padding: 12px 13px;
+    font-family: 'Inter', sans-serif;
+    font-size: 14.5px;
+    color: var(--ink);
+    background: #F5F8FB;
+    resize: vertical;
+    min-height: 84px;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+  }
+
+  .comentario-panel textarea:focus {
+    outline: none;
+    border-color: var(--brand);
+    background: #FBFDFF;
+    box-shadow: 0 0 0 4px rgba(20, 103, 199, 0.14);
+  }
+
+  .comentario-panel .confirm-row { margin-top: 12px; }
+
+  /* ---------- Botón "avanzar de etapa" ---------- */
+  #gestion-acciones > .btn { width: 100%; }
+
+  /* ---------- Loader de carga inicial del panel ---------- */
+  .gestion-loader {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: 48px 20px;
+  }
+
+  /* ---------- Modal de confirmación (reemplaza window.confirm) ---------- */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    background: rgba(11, 32, 56, 0.55);
+  }
+
+  .modal-card {
+    width: 100%;
+    max-width: 340px;
+    background: var(--panel);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 30px 60px -20px rgba(9, 35, 70, 0.5);
+    padding: 26px 24px 22px;
+    text-align: center;
+    animation: modal-aparecer 0.18s ease;
+  }
+
+  @keyframes modal-aparecer {
+    from { opacity: 0; transform: translateY(8px) scale(0.98); }
+    to { opacity: 1; transform: none; }
+  }
+
+  .modal-icono {
+    width: 48px;
+    height: 48px;
+    margin: 0 auto 14px;
+    border-radius: 50%;
+    background: var(--success-soft);
+    color: var(--success);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .modal-icono svg { width: 24px; height: 24px; }
+
+  .modal-titulo {
+    font-family: 'Poppins', sans-serif;
+    font-weight: 700;
+    font-size: 17px;
+    color: var(--ink);
+    margin-bottom: 8px;
+  }
+
+  .modal-texto {
+    font-size: 13.5px;
+    color: var(--ink-soft);
+    line-height: 1.5;
+  }
+
+  .modal-card .confirm-row { margin-top: 20px; }
+</style>

@@ -1,0 +1,38 @@
+- table [ref=e2]:
+  - rowgroup [ref=e3]:
+    - row [ref=e4]:
+      - cell [ref=e5]:
+        - banner [ref=e6]:
+          - generic [ref=e7]:
+            - alert [ref=e12]: Esta aplicación la ha creado un usuario de Google Apps Script
+            - generic [ref=e13]:
+              - link "Denunciar abuso" [ref=e14] [cursor=pointer]:
+                - /url: https://drive.google.com/abuse?id=AAMpA0SpDiwFYIH5HzMt9-KfKtErmlFhhENKi5mcW4m_d49REhCl58HbpMastpvE4vDUnhGLJ2pApjNEQxhOYluJ5ShYtxH0rJJUX4pv%3A0&docurl=https%3A%2F%2Fscript.google.com%2Fmacros%2Fs%2FAKfycbyImHZW3HIlv_9xSnhfI9_j_J6pXbvkcNokhkRa9gEiohdc0mfWijT5tBQLl02L01-dnA%2Fexec
+              - link "Más información" [ref=e15] [cursor=pointer]:
+                - /url: https://developers.google.com/apps-script
+          - button "Cerrar" [ref=e16]
+    - row [ref=e19]:
+      - cell [ref=e20]:
+        - iframe [ref=e21]:
+          - iframe [ref=f1e2]:
+            - generic [ref=f2e2]:
+              - generic [ref=f2e3]:
+                - img "Frozz Colombia" [ref=f2e5]
+                - generic [ref=f2e6]: Solicita y rastrea el estado de tus garantías
+              - generic [ref=f2e7]:
+                - button "Nueva garantía" [ref=f2e8] [cursor=pointer]
+                - button "Consultar garantía" [ref=f2e9] [cursor=pointer]
+              - generic [ref=f2e10]:
+                - paragraph [ref=f2e11]: Cuéntanos qué pasó y te damos un número de seguimiento al instante.
+                - generic [ref=f2e14]:
+                  - generic [ref=f2e15]:
+                    - generic [ref=f2e16]: Tipo de documento
+                    - combobox "Tipo de documento" [ref=f2e17]:
+                      - option "Selecciona un tipo" [disabled] [selected]
+                      - option "NIT"
+                      - option "Cédula de ciudadanía (CC)"
+                  - generic [ref=f2e18]:
+                    - generic [ref=f2e19]: Número de documento de tu empresa
+                    - textbox "Número de documento de tu empresa" [ref=f2e24]:
+                      - /placeholder: "Ej: 901287786-5"
+                  - button "Verificar empresa" [ref=f2e25] [cursor=pointer]
